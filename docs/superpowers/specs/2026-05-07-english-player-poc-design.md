@@ -1,194 +1,234 @@
-# Innoblue English Player POC — Design Spec
+# Innoblue · 旅遊英文共學 — Design Spec
 
 **Date:** 2026-05-07
-**Status:** Approved
+**Status:** Approved (revised after design import)
 **Repo:** https://github.com/burneng-com/innoblue-web
 **Target URL:** https://innoblue.burneng.com
+**Tracks:** GitHub issue #1
 
 ## 1. Goal
 
-Build a minimal proof-of-concept web app that plays English words and sentences out loud, using either Deepgram TTS or the browser's Web Speech API (user-toggleable). Deploy to Cloudflare Pages.
+Port the supplied React/JSX prototype (`/Users/eugene/Downloads/innoblue-web.zip` — 6 files: `index.html`, `app.jsx`, `components.jsx`, `data.jsx`, `tweaks-panel.jsx`, plus a bundle-src variant) into an Astro + Cloudflare Pages site, retain the visual design and interactions exactly, and upgrade the speech feature to support both Deepgram TTS and the browser's Web Speech API with a runtime toggle.
 
-This is **phase 1** of a larger English read/write practice tool. Recording + speech-to-text (Deepgram STT) is intentionally out of scope for this phase.
+This single deploy resolves issue #1 (review + ship the prototype) and the original POC goal (read English words/sentences via TTS).
 
 ## 2. Scope
 
 ### In scope
-- Single page that lists 10 English words and 5 English sentences
-- Click ▶ to play any item
-- Toggle between two TTS engines: Deepgram Aura vs. Web Speech API
-- Voice selector (Deepgram voices only)
-- Server endpoint that proxies Deepgram TTS so the API key stays server-side
-- Deploy to Cloudflare Pages with custom domain `innoblue.burneng.com`
+- Five sections from the prototype, all preserved:
+  - **Today (home)** — hero, Today's 5 flashcards, ProgressBar (22-day), quote panel, weekly focus
+  - **Vocab** — filterable + searchable card grid (TODAY_WORDS + VOCAB_LIBRARY)
+  - **Phrases** — sidebar of 6 scenarios + ScenarioPanel of 8 phrases each
+  - **Trips** — boarding-pass styled trip cards + library shelf bar
+  - **Play** — ScenarioGame multi-choice with streak counter
+- Sticky header with section navigation and progress chip
+- Footer with version line
+- Speech upgrade: every `SpeakBtn` honours a global engine setting (Deepgram | Web Speech) and, when Deepgram is selected, the chosen voice
+- Engine + voice picker control (placed in the header)
+- `/api/tts` Pages Function that proxies Deepgram so the API key never reaches the client
+- Cloudflare Pages deploy with custom domain `innoblue.burneng.com`
 
-### Out of scope (deferred to later phases)
-- Recording user speech / Deepgram STT
-- Pronunciation comparison / scoring
-- User accounts, history, progress tracking
-- Internationalization
-- Mobile-specific optimisations beyond responsive layout
+### Out of scope (deferred)
+- `tweaks-panel.jsx` (design-time host-iframe tool, not for production)
+- Recording / Deepgram STT / pronunciation scoring
+- Auth, persistence, progress writes (the 22-day data is read-only)
+- Trip "新增行程" and "匯出 PDF" actions (buttons render but are no-op stubs with `disabled` cursor)
 
 ## 3. Tech Stack
 
 | Layer | Choice | Reason |
 |---|---|---|
 | Package manager / runtime | Bun | User-specified |
-| Framework | Astro | User-specified |
-| Adapter | `@astrojs/cloudflare` | Required for Pages Functions (server endpoints) |
-| Styling | Tailwind CSS | Fast POC styling |
-| Language | TypeScript | Default for Astro |
-| TTS A | Deepgram Aura (`/v1/speak`) | User has API key |
+| Framework | Astro 4+ | User-specified |
+| UI framework | `@astrojs/react` | Prototype is React; islands keep static parts cheap |
+| Adapter | `@astrojs/cloudflare` | Required for Pages Functions |
+| Styling | Hand-written CSS in `global.css` | Prototype uses CSS variables + inline styles; no Tailwind |
+| Language | TypeScript | Default |
+| TTS A | Deepgram Aura (`/v1/speak`) | API key already on hand |
 | TTS B | Browser `SpeechSynthesis` | Free fallback / comparison |
 | Hosting | Cloudflare Pages | User-specified |
 
 ## 4. Architecture
 
 ```
-Browser
-  ├─ Engine = "deepgram"
-  │     └─ POST /api/tts {text, voice}  ──▶  Deepgram /v1/speak
-  │            ◀── audio/mpeg blob
-  │            └─ play via <audio>
-  └─ Engine = "webspeech"
-        └─ window.speechSynthesis.speak(new SpeechSynthesisUtterance(text))
+src/pages/index.astro
+  └─ <App client:load />        ← single React island (mirrors prototype's <App/>)
+        ├─ Header (engine toggle + voice selector)
+        ├─ HomeView | VocabView | PhrasesView | TripsView | PlayView
+        └─ Footer
+
+src/pages/api/tts.ts            ← POST { text, voice } -> Deepgram audio/mpeg
 ```
 
-- Deepgram API key never reaches the browser — it lives only as a Cloudflare Pages env var and is read by the Pages Function.
-- Only one audio source plays at a time; pressing a new ▶ stops any currently playing item.
+Why a single island: the prototype already lives in one `<App/>` and section switching is local React state. Splitting hairs into per-section islands buys nothing here and complicates state for engine/voice. Future pages (e.g. `/print`) can be plain Astro.
+
+Speech flow:
+
+```
+SpeakBtn(text)
+  └─ if engine === "webspeech": window.speechSynthesis.speak(...)
+  └─ if engine === "deepgram":
+       fetch("/api/tts", { body: { text, voice } })
+       -> blob -> URL.createObjectURL -> <audio>.play()
+       (cached in Map<voice::text, Blob> to avoid re-billing on replay)
+```
 
 ## 5. File Structure
 
 ```
 innoblue-web/
-├── .env.example
+├── .env.example                    # DEEPGRAM_API_KEY=
 ├── .gitignore
-├── astro.config.mjs           # cloudflare adapter, tailwind integration
-├── package.json
+├── astro.config.mjs                # cloudflare adapter + react integration
+├── package.json                    # bun
 ├── tsconfig.json
-├── tailwind.config.mjs
 ├── public/
 │   └── favicon.svg
 ├── src/
 │   ├── data/
-│   │   └── content.ts         # words[] + sentences[]
+│   │   └── content.ts              # TODAY_WORDS, VOCAB_LIBRARY, SCENARIOS, TRIPS, PROGRESS, DAILY_QUOTES, GAME_SCENES
 │   ├── lib/
-│   │   ├── tts-deepgram.ts    # client: fetch /api/tts -> play blob
-│   │   └── tts-webspeech.ts   # client: SpeechSynthesis wrapper
+│   │   ├── tts.ts                  # engine context + cache + play helpers
+│   │   └── colorTokens.ts          # tone() helper from prototype
 │   ├── components/
-│   │   ├── EngineToggle.astro
-│   │   ├── VoiceSelector.astro
-│   │   └── PlayItem.astro
+│   │   ├── App.tsx                 # root island (section state, engine state)
+│   │   ├── Header.tsx
+│   │   ├── Footer.tsx
+│   │   ├── EngineToggle.tsx        # NEW (deepgram | webspeech)
+│   │   ├── VoiceSelector.tsx       # NEW (deepgram voices)
+│   │   ├── SpeakBtn.tsx            # engine-aware
+│   │   ├── Tag.tsx
+│   │   ├── Flashcard.tsx
+│   │   ├── SectionHeader.tsx
+│   │   ├── ProgressBar.tsx
+│   │   ├── ScenarioPanel.tsx
+│   │   ├── TripCard.tsx
+│   │   ├── ScenarioGame.tsx
+│   │   └── views/
+│   │       ├── HomeView.tsx
+│   │       ├── VocabView.tsx
+│   │       ├── PhrasesView.tsx
+│   │       ├── TripsView.tsx
+│   │       └── PlayView.tsx
 │   ├── pages/
-│   │   ├── index.astro        # words section + sentences section
+│   │   ├── index.astro             # loads <App client:load />
 │   │   └── api/
-│   │       └── tts.ts         # POST -> Deepgram TTS proxy
-│   └── styles/global.css      # tailwind base
+│   │       └── tts.ts              # Deepgram proxy (Cloudflare runtime)
+│   └── styles/
+│       └── global.css              # all CSS vars + .stamp / .flip / .perf-bottom / .pulse / etc., font imports
 └── README.md
 ```
 
-## 6. Data
+## 6. Data Port
 
-`src/data/content.ts`:
+Convert `data.jsx` → `src/data/content.ts`:
+- Add TS types: `Word`, `Phrase`, `Scenario`, `Trip`, `Progress`, `Quote`, `GameScene`, `DeepgramVoice`
+- Keep all literal content unchanged
+- Move `GAME_SCENES` (currently inside `components.jsx`) into the same file for tidiness
+- Export `deepgramVoices` and `defaultVoice` (added):
+  - `aura-asteria-en` (Asteria, female) — default
+  - `aura-luna-en` (Luna, female)
+  - `aura-stella-en` (Stella, female)
+  - `aura-orion-en` (Orion, male)
+  - `aura-arcas-en` (Arcas, male)
+  - `aura-perseus-en` (Perseus, male)
 
-```ts
-export const words: string[] = [
-  "apple", "banana", "computer", "develop", "freedom",
-  "holiday", "journey", "knowledge", "language", "opportunity",
-];
+## 7. Speech Module
 
-export const sentences: string[] = [
-  "The quick brown fox jumps over the lazy dog.",
-  "Practice makes perfect.",
-  "Learning English is fun and rewarding.",
-  "Could you please repeat that more slowly?",
-  "I would like a cup of coffee, please.",
-];
+### `SpeechProvider` (React context)
+State: `{ engine: "deepgram" | "webspeech", voice: string }`. Initial: `webspeech`, `aura-asteria-en`. Persisted in `localStorage` key `innoblue-speech`.
 
-export const deepgramVoices: { id: string; label: string }[] = [
-  { id: "aura-asteria-en", label: "Asteria (female)" },
-  { id: "aura-luna-en",    label: "Luna (female)" },
-  { id: "aura-stella-en",  label: "Stella (female)" },
-  { id: "aura-orion-en",   label: "Orion (male)" },
-  { id: "aura-arcas-en",   label: "Arcas (male)" },
-  { id: "aura-perseus-en", label: "Perseus (male)" },
-];
+### `useSpeak()` hook
+Returns `{ speak(text), cancel(), playing }`. Internally:
+- Owns one `HTMLAudioElement` and a `Map<string, Blob>` cache
+- On `speak`, cancels any currently playing source first
+- Branches on `engine`
 
-export const defaultVoice = "aura-asteria-en";
-```
+### `SpeakBtn` change
+Drop the inline `speak` function and pull from `useSpeak()`. Visual + ARIA stays identical.
 
-## 7. API Contract
+### `EngineToggle` (header)
+Two-pill segmented control matching the existing nav pill style (`background: var(--ink)` for active).
+
+### `VoiceSelector` (header)
+Native `<select>` styled with `.hairline`, hidden when `engine !== "deepgram"`.
+
+## 8. API Contract
 
 ### `POST /api/tts`
 
 **Request body (JSON):**
 ```json
-{ "text": "apple", "voice": "aura-asteria-en" }
+{ "text": "I'd like an aisle seat, please.", "voice": "aura-asteria-en" }
 ```
 
 **Validation:**
 - `text`: required, non-empty string, max 500 chars
-- `voice`: required, must be one of the IDs in `deepgramVoices`
+- `voice`: required, must be in the `deepgramVoices` allowlist
 
 **Behaviour:**
-- Calls `POST https://api.deepgram.com/v1/speak?model={voice}` with header `Authorization: Token ${env.DEEPGRAM_API_KEY}` and body `{ text }`.
-- Streams the response back to the client with `Content-Type: audio/mpeg`.
+- `POST https://api.deepgram.com/v1/speak?model={voice}`
+- Header: `Authorization: Token ${env.DEEPGRAM_API_KEY}`
+- Body: `{ text }`
+- Response: stream upstream `audio/mpeg` body back to client with the same content-type and a 1-day `Cache-Control: public, max-age=86400, immutable` (deterministic input → deterministic audio)
 
 **Errors:**
-- 400 — invalid input
-- 500 — env var missing or upstream Deepgram error (return JSON `{ error }`)
+- `400` invalid input → JSON `{ error }`
+- `502` upstream non-2xx → JSON `{ error, upstreamStatus }`
+- `500` env missing → JSON `{ error: "DEEPGRAM_API_KEY not configured" }`
 
-## 8. UX
+## 9. CSS Port
 
-```
-┌────────────────────────────────────────────┐
-│  Innoblue English Player                   │
-│                                            │
-│  Engine: ( ● Deepgram ) ( ○ Web Speech )   │
-│  Voice : [ Asteria (female)         ▼ ]    │   ← only when Deepgram
-│                                            │
-│  Words ──────────────────────────────      │
-│   [▶] apple                                │
-│   [▶] banana                               │
-│   ...                                      │
-│                                            │
-│  Sentences ──────────────────────────      │
-│   [▶] The quick brown fox jumps over...   │
-│   ...                                      │
-└────────────────────────────────────────────┘
-```
+Move everything inside the `<style>` block of `index.html` into `src/styles/global.css`:
+- `:root` custom properties
+- Reset (`*`, `html, body`)
+- Body font + smoothing + `font-feature-settings`
+- Utility classes: `.serif`, `.mono`, `.tc`, `.paper-tex`, `.perf-bottom`, `.flip*`, `.stamp`, `.hairline`, `.hairline-strong`, `.route-dot`, `.pulse` (+ `@keyframes pulse`), `.lift`, `:focus-visible`, scrollbar
+- Google Fonts `<link>` goes into the layout `<head>`
 
-- ▶ button toggles to ⏸ while that item is playing.
-- Switching engine or voice while audio is playing stops playback.
-- Voice selector is hidden when engine = Web Speech.
-- Layout is single-column, responsive, max-width ~640px centred.
-
-## 9. Environment Variables
+## 10. Environment Variables
 
 | Name | Where | Purpose |
 |---|---|---|
-| `DEEPGRAM_API_KEY` | `.env` (local), Cloudflare Pages env (prod) | Auth header for Deepgram API |
+| `DEEPGRAM_API_KEY` | `.env` (local), Cloudflare Pages env (prod + preview) | Auth header for Deepgram |
 
-`.env` is git-ignored. `.env.example` is committed with the var name and an empty value.
+`.gitignore` excludes `.env`, `.env.*` (except `.env.example`), `node_modules/`, `dist/`, `.astro/`, `.wrangler/`.
 
-## 10. Deployment
+## 11. Deployment
 
-1. Push project to `github.com/burneng-com/innoblue-web` (already created).
-2. Cloudflare Dashboard (account `ifangdar@gmail.com`) → Pages → Create project → Connect to Git → select repo.
+1. Push to `github.com/burneng-com/innoblue-web` (already created and `main` exists).
+2. Cloudflare Dashboard (account `ifangdar@gmail.com`) → **Workers & Pages → Pages → Create → Connect to Git** → select repo.
 3. Build settings:
    - Framework preset: Astro
    - Build command: `bun run build`
    - Build output directory: `dist`
-4. Environment variables (Production + Preview): set `DEEPGRAM_API_KEY`.
-5. Custom domain: add `innoblue.burneng.com`. Cloudflare creates the CNAME automatically if `burneng.com` is on the same Cloudflare account; otherwise add a `CNAME innoblue → <pages-subdomain>.pages.dev` at the DNS provider.
+   - Root directory: `/`
+   - Node version env: `NODE_VERSION=20` (Cloudflare default for Astro)
+4. Environment variables (Production + Preview): `DEEPGRAM_API_KEY` (encrypted).
+5. Custom domain: add `innoblue.burneng.com` in Pages → Custom domains. If `burneng.com` is on the same Cloudflare account a CNAME is created automatically; otherwise add a `CNAME innoblue → <project>.pages.dev` at the DNS provider.
 
-## 11. Verification
+## 12. Verification
 
-- Local: `bun run dev`, click each word and sentence under both engines, confirm audio plays.
-- Local Deepgram: confirm `/api/tts` returns `audio/mpeg` (200) and that an invalid `voice` returns 400.
-- Production: same manual checks against `https://innoblue.burneng.com`.
+Local (`bun run dev`):
+- Each section loads, no console errors
+- Flip card animation works on every flashcard
+- Search + filter on Vocab returns expected counts (`顯示 N / total`)
+- Phrases sidebar switches scenarios; Copy button toggles to "✓ 已複製" for ~1.2 s
+- ScenarioGame: picking the wrong option resets streak, right option increments
+- Engine toggle switches mid-playback (in-flight audio is cancelled)
+- Voice selector hidden when engine = Web Speech
+- `/api/tts` returns 200 + `audio/mpeg` for valid input, 400 for empty text, 400 for unknown voice
 
-## 12. Open Decisions Deferred to Implementation
+Production:
+- Visit `https://innoblue.burneng.com`, repeat manual checks
+- Confirm Deepgram audio plays (proves env var is set)
 
-- Exact Tailwind theme tokens (colours, spacing) — pick sensible defaults.
-- Loading state UI while Deepgram is fetching — simple spinner on the button is fine.
-- Whether to cache Deepgram audio blobs in memory across replays of the same item — yes, keep a `Map<string, Blob>` keyed by `${voice}::${text}` to avoid re-billing.
+## 13. Issue #1 Closeout
+
+Comment on issue #1 with: deployed URL, summary of integration choices (React islands, no Tailwind, Deepgram added), checklist marked done, any deferred items called out (tweaks-panel, recording). Close on merge.
+
+## 14. Open decisions deferred to implementation
+
+- Exact spinner UI inside `SpeakBtn` while waiting for Deepgram fetch (lightweight in-button spinner).
+- Cache eviction: cap blob cache at 50 entries (LRU) to bound memory.
+- Mobile breakpoint: prototype uses fixed columns (`repeat(5, 1fr)` etc.); add `@media (max-width: 720px)` overrides where columns collapse to 1–2 wide.

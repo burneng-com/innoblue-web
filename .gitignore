@@ -25,7 +25,8 @@ yarn-error.log*
 pnpm-debug.log*
 bun-debug.log*
 
-# OMC / scratch
+# OMC / claude-mem / scratch
 .omc/
+AGENTS.md
 audio/
 audio.zip

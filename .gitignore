@@ -1,0 +1,32 @@
+# env
+.env
+.env.*
+!.env.example
+
+# build / deps
+node_modules/
+dist/
+.astro/
+.wrangler/
+.vercel/
+.netlify/
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun-debug.log*
+
+# OMC / claude-mem / scratch
+.omc/
+AGENTS.md
+audio/
+audio.zip

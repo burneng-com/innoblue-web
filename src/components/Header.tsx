@@ -93,26 +93,30 @@ export function Header({ section, setSection, progress }: Props) {
             border: "1px solid var(--line)",
           }}
         >
-          {items.map((it) => (
-            <button
-              key={it.id}
-              onClick={() => setSection(it.id)}
-              style={{
-                border: "none",
-                background: section === it.id ? "var(--ink)" : "transparent",
-                color: section === it.id ? "#fff" : "var(--ink-2)",
-                padding: "8px 16px",
-                borderRadius: 999,
-                fontSize: 13,
-                fontWeight: 500,
-                fontFamily: "inherit",
-                transition: "all .2s",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {it.label}
-            </button>
-          ))}
+          {items.map((it) => {
+            const active = section === it.id;
+            return (
+              <button
+                key={it.id}
+                onClick={() => setSection(it.id)}
+                aria-current={active ? "page" : undefined}
+                style={{
+                  border: "none",
+                  background: active ? "var(--ink)" : "transparent",
+                  color: active ? "#fff" : "var(--ink-2)",
+                  padding: "8px 16px",
+                  borderRadius: 999,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  fontFamily: "inherit",
+                  transition: "all .2s",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {it.label}
+              </button>
+            );
+          })}
         </nav>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

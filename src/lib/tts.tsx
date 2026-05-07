@@ -59,7 +59,9 @@ let currentAudio: HTMLAudioElement | null = null;
 function cancelAll() {
   if (currentAudio) {
     currentAudio.pause();
+    const prev = currentAudio.src;
     currentAudio.src = "";
+    if (prev.startsWith("blob:")) URL.revokeObjectURL(prev);
     currentAudio = null;
   }
   if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -70,7 +72,11 @@ function cancelAll() {
 async function fetchDeepgram(text: string, voice: string): Promise<Blob> {
   const key = `${voice}::${text}`;
   const cached = blobCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    blobCache.delete(key);
+    blobCache.set(key, cached);
+    return cached;
+  }
   const res = await fetch("/api/tts", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

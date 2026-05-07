@@ -126,6 +126,7 @@ export function ScenarioPanel({ scenario }: { scenario: Scenario }) {
               <button
                 onClick={() => copy(p.en, i)}
                 title="複製句子"
+                aria-label="Copy sentence"
                 style={{
                   border: "1px solid var(--line)",
                   background: copied === i ? t.bg : "#fff",
@@ -137,7 +138,7 @@ export function ScenarioPanel({ scenario }: { scenario: Scenario }) {
                   transition: "all .2s",
                 }}
               >
-                {copied === i ? "✓ 已複製" : "Copy"}
+                <span aria-live="polite">{copied === i ? "✓ 已複製" : "Copy"}</span>
               </button>
               <SpeakBtn text={p.en} size={32} />
             </div>

@@ -57,9 +57,9 @@ export async function POST(context: APIContext): Promise<Response> {
 
   if (!upstream.ok) {
     const errText = await upstream.text().catch(() => "");
-    return jsonError("Deepgram upstream error", 502, {
+    console.error("Deepgram upstream error", upstream.status, errText.slice(0, 500));
+    return jsonError("upstream synthesis failed", 502, {
       upstreamStatus: upstream.status,
-      detail: errText.slice(0, 500),
     });
   }
 
